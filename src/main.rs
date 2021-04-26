@@ -36,7 +36,7 @@ pub extern "C" fn rust_main() -> ! {
 	p.pin13.into_output().set_high().ok();
 	p.pin14.into_output().set_high().ok();
 	p.pin15.into_output().set_high().ok();
-	
+
 	loop {}
 }
 
@@ -49,10 +49,10 @@ static mut BOOT_STACK: [u8; BOOT_STACK_SIZE] = [0; BOOT_STACK_SIZE];
 #[export_name = "entry"]
 pub unsafe fn entry() -> ! {
 	asm!(
-		"la		$sp, {boot_stack_top}",
-		"addi	$sp, $sp, {boot_stack_size}",
+		"la     $sp, {boot_stack_top}",
+		"addi   $sp, $sp, {boot_stack_size}",
 		".cprestore 4",
-		"jal	{rust_main}",
+		"jal    {rust_main}",
 		boot_stack_top = sym BOOT_STACK,
 		boot_stack_size = const BOOT_STACK_SIZE,
 		rust_main = sym rust_main,
