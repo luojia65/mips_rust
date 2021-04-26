@@ -1,0 +1,15 @@
+[build]
+target = "mipsel-unknown-linux-musl"
+
+[target.mipsel-unknown-linux-musl]
+rustflags = [
+	"-C", "link-arg=-Tlinker.ld", 
+	"-C", "link-arg=-EL", 
+	"-C", "link-arg=-nostdlib", 
+	"-C", "link-arg=-Bstatic", 
+	"-C", "link-arg=-N", 
+	#"-C", "link-arg=-mno-mips16", 
+	#"-C", "link-arg=-mno-micromips", 
+	#"-C", "link-arg=-msoft-float", 
+]
+linker = "mips-img-elf-ld"
