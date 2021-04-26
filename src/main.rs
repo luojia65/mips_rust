@@ -1,47 +1,61 @@
+#![feature(asm)]
 #![no_std]
 #![no_main]
 
-#![feature(global_asm)]
+// the hardware abstraction layer 
+mod hal;
+mod mem;
 
-global_asm!(include_str!("entry.asm"));
-
+use embedded_hal::digital::v2::OutputPin;
+use hal::MyGpioPeripheral;
 use core::panic::PanicInfo;
 
-#[panic_handler]
-fn panic(_info: &PanicInfo) ->! {
+#[cfg_attr(not(test), panic_handler)]
+#[allow(unused)]
+fn panic(_info: &PanicInfo) -> ! {
 	loop {}
 }
 
-// the hardware abstraction layer 
-mod hal;
-
-mod led;
-
-mod mem;
-
-use hal::digital::GPIO;
-
-#[no_mangle]
-pub extern "C" fn main() ->! {
-	GPIO::init();
-
-	led::set_on(0);
-	led::set_on(1);
-	led::set_on(2);
-	led::set_on(3);
-	led::set_on(4);
-	led::set_on(5);
-	led::set_on(6);
-	led::set_on(7);
-	led::set_on(8);
-	led::set_on(9);
-	led::set_on(10);
-	led::set_on(11);
-	led::set_on(12);
-	led::set_on(13);
-	led::set_on(14);
-	led::set_on(15);
-	led::set_on(16);
-
+#[export_name = "rust_main"]
+pub extern "C" fn rust_main() -> ! {
+	let p = MyGpioPeripheral::take().unwrap();
+	
+	p.pin0.into_output().set_high().ok();
+	p.pin1.into_output().set_high().ok();
+	p.pin2.into_output().set_high().ok();
+	p.pin3.into_output().set_high().ok();
+	p.pin4.into_output().set_high().ok();
+	p.pin5.into_output().set_high().ok();
+	p.pin6.into_output().set_high().ok();
+	p.pin7.into_output().set_high().ok();
+	p.pin8.into_output().set_high().ok();
+	p.pin9.into_output().set_high().ok();
+	p.pin10.into_output().set_high().ok();
+	p.pin11.into_output().set_high().ok();
+	p.pin12.into_output().set_high().ok();
+	p.pin13.into_output().set_high().ok();
+	p.pin14.into_output().set_high().ok();
+	p.pin15.into_output().set_high().ok();
+	
 	loop {}
+}
+
+const BOOT_STACK_SIZE: usize = 1024 * 2;
+
+#[link_section = ".bss.stack"]
+static mut BOOT_STACK: [u8; BOOT_STACK_SIZE] = [0; BOOT_STACK_SIZE];
+
+#[link_section = ".text.entry"]
+#[export_name = "entry"]
+pub unsafe fn entry() -> ! {
+	asm!(
+		"la		$sp, {boot_stack_top}",
+		"addi	$sp, $sp, {boot_stack_size}",
+		".cprestore 4",
+		"jal	{rust_main}",
+		boot_stack_top = sym BOOT_STACK,
+		boot_stack_size = const BOOT_STACK_SIZE,
+		rust_main = sym rust_main,
+		options(noreturn)
+	)
 }

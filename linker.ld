@@ -38,5 +38,6 @@ SECTIONS {
 
 	/DISCARD/ : {
 		* (COMMON)
+		* (.eh_frame)
 	}
 }

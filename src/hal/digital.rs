@@ -1,120 +1,100 @@
 use embedded_hal::digital::v2;
+use volatile_register::RW;
 
-use core::ptr::{
-	write_volatile, 
-	read_volatile, 
-};
+use core::marker::PhantomData;
 
-pub use v2::InputPin as Input;
-pub use v2::OutputPin as Output;
-
-#[allow(dead_code)]
-const GPIO_BASE: usize = 0x1060_0000;
-
-#[allow(dead_code)]
-mod offset {
-	pub const GPIO_DATA: usize 	= 0x0000;
-	pub const GPIO_TRI: usize 	= 0x0004;
-	pub const GPIO2_DATA: usize = 0x0008;
-	pub const GPIO2_TRI: usize 	= 0x000c;
-
-	pub const GIER: usize 		= 0x011c;
-	pub const IP_IER: usize 	= 0x0128;
-	pub const IP_ISR: usize 	= 0x0120;
+#[repr(C)]
+pub struct RegisterBlock {
+	/// 0x0000 - Channel 1 Gpio Registers
+	pub channel1: Channel,
+	/// 0x0008 - Channel 2 Gpio Registers
+	pub channel2: Channel,
+	_padding1: [u8; 268],
+	/// 0x011C - Global Interrupt Enable Register 
+	pub gier: RW<u32>,
+	/// 0x0120 - IP Interrupt Status Register
+	pub ip_isr: RW<u32>,
+	_padding2: [u8; 4],
+	/// 0x0128 - IP Interrupt Enable Register
+	pub ip_ier: RW<u32>,
 }
 
-static mut GPIO_DATA: u32 = 0;
+#[repr(C)]
+pub struct Channel {
+	/// 0x0000 - Channel Gpio Data Register
+	pub data: RW<u32>,
+	/// 0x0004 - Channel Gpio 3-State Control Register
+	pub tri: RW<u32>,
+}
 
-pub struct GPIO;
+pub struct Gpio<const P: usize> (());
 
-impl GPIO {
-	pub fn init() ->GPIO {
-		let channel1 = GPIO_BASE + offset::GPIO_TRI;
-		let channel2 = GPIO_BASE + offset::GPIO2_TRI;
+impl<const P: usize> Gpio<P> {
+	const PTR: *mut RegisterBlock = P as *mut _;
+}
 
-		unsafe {
-			// set channel1 as output 
-			write_volatile(channel1 as *mut u32, 0x0000);
-
-			// reset GPIO_DATA as 0x0000 
-			GPIO_DATA = 0x0000;
-			write_volatile((GPIO_BASE + offset::GPIO_DATA) as *mut u32, GPIO_DATA);
-
-			// set channel2 as input 
-			write_volatile(channel2 as *mut u32, 0xffff);
-		}
-
-		GPIO {}
+impl<const P: usize> Gpio<P> {
+	pub(crate) fn set_pin_input(pin: usize) {
+		let tri = unsafe { &mut (*Self::PTR).channel1.tri };
+		unsafe { tri.write(tri.read() | (1 >> pin)) };
 	}
-
-	#[allow(non_snake_case)]
-	pub fn get_InputPin(pin: u32) ->Option<InputPin> {
-		let tri: u32;
-		unsafe {
-			tri = read_volatile((GPIO_BASE + offset::GPIO2_TRI) as *const u32);
-		}
-
-		if 0 == (tri >> pin) & 0x01 {
-			Some(InputPin(pin)) 
-		}
-		else {None}
+	pub(crate) fn set_pin_output(pin: usize) {
+		let tri = unsafe { &mut (*Self::PTR).channel1.tri };
+		unsafe { tri.write(tri.read() & !(1 >> pin)) };
 	}
-
-	#[allow(non_snake_case)]
-	pub fn get_OutputPin(pin: u32) ->Option<OutputPin> {
-		let tri: u32;
-		unsafe {
-			tri = read_volatile((GPIO_BASE + offset::GPIO_TRI) as *const u32) as u32;
-		}
-
-		Some(OutputPin(pin))
+	fn read_pin_data(pin: usize) -> bool {
+		unsafe { &*Self::PTR }.channel1.data.read() & (1 >> pin) != 0
+	}
+	fn write_pin_data(pin: usize, new_data: bool) {
+		let tri = unsafe { &mut (*Self::PTR).channel1.data };
+		let mut data = tri.read() & !(1 >> pin);
+		if new_data { data |= 1 >> pin }
+		unsafe { tri.write(data) };
 	}
 }
 
-pub struct InputPin(u32);
-impl v2::InputPin for InputPin {
+pub struct Input;
+
+pub struct Output;
+
+pub struct GpioPin<MODE, const P: usize, const N: usize> {
+	_mode: PhantomData<MODE>,
+}
+
+#[allow(unused)]
+impl<MODE, const P: usize, const N: usize> GpioPin<MODE, P, N> {
+    pub fn into_input(self) -> GpioPin<Input, P, N> {
+        Gpio::<P>::set_pin_input(N);
+        GpioPin { _mode: PhantomData }
+    }
+    pub fn into_output(self) -> GpioPin<Output, P, N> {
+        Gpio::<P>::set_pin_output(N);
+        GpioPin { _mode: PhantomData }
+    }
+}
+
+impl<const P: usize, const N: usize> v2::InputPin for GpioPin<Input, P, N> {
 	type Error = ();
 
-	fn is_high(&self) ->Result<bool, Self::Error> {
-		let data: u32;
-		unsafe {
-			data = read_volatile((GPIO_BASE + offset::GPIO2_DATA) as *const u32);
-		}
-
-		Ok(0x01 == (data >> self.0) & 0x01) 
+	fn is_high(&self) -> Result<bool, Self::Error> {
+		Ok(Gpio::<P>::read_pin_data(N))
 	}
 
-	fn is_low(&self) ->Result<bool, Self::Error> {
-		let data: u32;
-		unsafe {
-			data = read_volatile((GPIO_BASE + offset::GPIO2_DATA) as *const u32);
-		}
-
-		Ok(0x00 == (data >> self.0) & 0x01) 
+	fn is_low(&self) -> Result<bool, Self::Error> {
+		Ok(!Gpio::<P>::read_pin_data(N))
 	}
 }
 
-pub struct OutputPin(u32);
-impl v2::OutputPin for OutputPin {
+impl<const P: usize, const N: usize> v2::OutputPin for GpioPin<Output, P, N> {
 	type Error = ();
 
-	fn set_high(&mut self) ->Result<(), Self::Error> {
-		let mask = 0x01u32 << self.0;
-
-		unsafe {
-			GPIO_DATA = GPIO_DATA | mask;
-			write_volatile((GPIO_BASE + offset::GPIO_DATA) as *mut u32, GPIO_DATA);
-		}
+	fn set_high(&mut self) -> Result<(), Self::Error> {
+		Gpio::<P>::write_pin_data(N, true);
 		Ok(())
 	}
 
 	fn set_low(&mut self) ->Result<(), Self::Error> {
-		let mask = !(0x01u32 << self.0);
-
-		unsafe {
-			GPIO_DATA = GPIO_DATA & mask;
-			write_volatile((GPIO_BASE + offset::GPIO_DATA) as *mut u32, GPIO_DATA);
-		}
+		Gpio::<P>::write_pin_data(N, false);
 		Ok(())
 	}
 }
