@@ -49,11 +49,11 @@ static mut BOOT_STACK: [u8; BOOT_STACK_SIZE] = [0; BOOT_STACK_SIZE];
 #[export_name = "entry"]
 pub unsafe fn entry() -> ! {
 	asm!(
-		"la     $sp, {boot_stack_top}",
+		"la     $sp, {boot_stack}",
 		"addi   $sp, $sp, {boot_stack_size}",
 		".cprestore 4",
 		"jal    {rust_main}",
-		boot_stack_top = sym BOOT_STACK,
+		boot_stack = sym BOOT_STACK,
 		boot_stack_size = const BOOT_STACK_SIZE,
 		rust_main = sym rust_main,
 		options(noreturn)
